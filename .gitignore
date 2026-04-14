@@ -11,3 +11,6 @@ config/cloudflare/*.json
 
 # local metadata
 Agents.md
+
+# Other
+*.bak
