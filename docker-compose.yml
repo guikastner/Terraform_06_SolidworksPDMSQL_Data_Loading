@@ -1,0 +1,246 @@
+services:
+  sqlserver:
+    image: ${SQLSERVER_IMAGE}
+    platform: ${SQLSERVER_PLATFORM}
+    container_name: ${SQLSERVER_CONTAINER_NAME}
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: ${SQLSERVER_EDITION}
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      TZ: ${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/1433'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ./database:/restore/database:ro
+      - ./databases:/restore/databases:ro
+    networks:
+      - stack_internal
+
+  sqlserver_restore:
+    image: ${SQLSERVER_IMAGE}
+    platform: ${SQLSERVER_PLATFORM}
+    container_name: ${SQLSERVER_CONTAINER_NAME}-restore
+    restart: "no"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      SQLSERVER_HOST: ${SQLSERVER_CONTAINER_NAME}
+      SQLSERVER_SA_USERNAME: ${SQLSERVER_SA_USERNAME}
+      SQLSERVER_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      SQLSERVER_RESTORE_ENABLED: ${SQLSERVER_RESTORE_ENABLED}
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [[ "$${SQLSERVER_RESTORE_ENABLED:-true}" != "true" ]]; then
+          exit 0
+        fi
+        if [[ -x /opt/mssql-tools18/bin/sqlcmd ]]; then
+          SQLCMD_PATH=/opt/mssql-tools18/bin/sqlcmd
+        elif [[ -x /opt/mssql-tools/bin/sqlcmd ]]; then
+          SQLCMD_PATH=/opt/mssql-tools/bin/sqlcmd
+        else
+          echo "sqlcmd not found in restore container" >&2
+          exit 1
+        fi
+        shopt -s nullglob
+        restore_files=(/restore/database/*.bak /restore/databases/*.bak)
+        if [[ $${#restore_files[@]} -eq 0 ]]; then
+          exit 0
+        fi
+        run_sqlcmd() {
+          local query="$$1"
+          SQLCMDPASSWORD="$${SQLSERVER_SA_PASSWORD}" "$${SQLCMD_PATH}" \
+            -S "$${SQLSERVER_HOST}" \
+            -U "$${SQLSERVER_SA_USERNAME}" \
+            -C \
+            -s "|" \
+            -W \
+            -h -1 \
+            -Q "$${query}"
+        }
+        for restore_file in "$${restore_files[@]}"; do
+          db_name="$$(run_sqlcmd "RESTORE HEADERONLY FROM DISK = N'$${restore_file}'" | head -n 1 | cut -d'|' -f11 | tr -d '\r')"
+          if [[ -z "$${db_name}" ]]; then
+            echo "Could not extract original database name from backup header: $${restore_file}" >&2
+            exit 1
+          fi
+          escaped_db_name="$${db_name//]/]]}"
+          file_list="$$(run_sqlcmd "RESTORE FILELISTONLY FROM DISK = N'$${restore_file}'")"
+          data_index=0
+          log_index=0
+          move_clauses=()
+          while IFS='|' read -r logical_name physical_name file_type _rest; do
+            logical_name="$$(printf '%s' "$${logical_name}" | tr -d '\r')"
+            file_type="$$(printf '%s' "$${file_type}" | tr -d '\r')"
+            [[ -n "$${logical_name}" ]] || continue
+            case "$${file_type}" in
+              L)
+                log_index=$$((log_index + 1))
+                if [[ $${log_index} -eq 1 ]]; then
+                  target_path="/var/opt/mssql/data/$${db_name}_log.ldf"
+                else
+                  target_path="/var/opt/mssql/data/$${db_name}_log$${log_index}.ldf"
+                fi
+                ;;
+              *)
+                data_index=$$((data_index + 1))
+                if [[ $${data_index} -eq 1 ]]; then
+                  target_path="/var/opt/mssql/data/$${db_name}.mdf"
+                else
+                  target_path="/var/opt/mssql/data/$${db_name}_$${data_index}.ndf"
+                fi
+                ;;
+            esac
+            escaped_logical_name="$${logical_name//\'/\'\'}"
+            move_clauses+=("MOVE N'$${escaped_logical_name}' TO N'$${target_path}'")
+          done <<< "$${file_list}"
+          if [[ $${#move_clauses[@]} -eq 0 ]]; then
+            echo "Could not extract logical files from backup: $${restore_file}" >&2
+            exit 1
+          fi
+          move_clause_sql="$$(printf ', %s' "$${move_clauses[@]}")"
+          move_clause_sql="$${move_clause_sql:2}"
+          restore_query="
+        IF DB_ID(N'$${escaped_db_name}') IS NOT NULL
+        BEGIN
+          ALTER DATABASE [$${escaped_db_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+        END;
+        RESTORE DATABASE [$${escaped_db_name}]
+        FROM DISK = N'$${restore_file}'
+        WITH REPLACE, RECOVERY, $${move_clause_sql};
+        ALTER DATABASE [$${escaped_db_name}] SET MULTI_USER;"
+          run_sqlcmd "$${restore_query}" >/dev/null
+        done
+    networks:
+      - stack_internal
+
+  webdb:
+    image: ${WEBDB_IMAGE}
+    container_name: ${WEBDB_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${WEBDB_HOST_PORT}:22071"
+    networks:
+      - stack_internal
+
+  node_red_init:
+    image: ${NODE_RED_IMAGE}
+    container_name: ${NODE_RED_CONTAINER_NAME}-init
+    restart: "no"
+    environment:
+      TZ: ${TZ}
+      NODE_RED_ADMIN_USERNAME: ${NODE_RED_ADMIN_USERNAME}
+      NODE_RED_ADMIN_PASSWORD: ${NODE_RED_ADMIN_PASSWORD}
+      NODE_RED_CREDENTIAL_SECRET: ${NODE_RED_CREDENTIAL_SECRET}
+      NODE_RED_EXTRA_MODULES: ${NODE_RED_EXTRA_MODULES}
+      SQLSERVER_HOST: ${SQLSERVER_CONTAINER_NAME}
+      SQLSERVER_PORT: "1433"
+      SQLSERVER_USER: ${SQLSERVER_SA_USERNAME}
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        mkdir -p /generated /data
+        admin_hash="$$(node-red admin hash-pw --password "$${NODE_RED_ADMIN_PASSWORD}" | tail -n 1 | tr -d '\r')"
+        if [ -n "$${NODE_RED_EXTRA_MODULES:-}" ]; then
+          OLD_IFS="$$IFS"
+          IFS=','
+          set -- $${NODE_RED_EXTRA_MODULES}
+          IFS="$$OLD_IFS"
+          npm install --no-progress --no-audit --unsafe-perm --prefix /data "$$@"
+        fi
+        cat > /generated/settings.js <<EOF
+        module.exports = {
+            uiPort: process.env.PORT || 1880,
+            uiHost: "0.0.0.0",
+            credentialSecret: "$${NODE_RED_CREDENTIAL_SECRET}",
+            adminAuth: {
+                type: "credentials",
+                users: [
+                    {
+                        username: "$${NODE_RED_ADMIN_USERNAME}",
+                        password: "$${admin_hash}",
+                        permissions: "*"
+                    }
+                ]
+            },
+            diagnostics: {
+                enabled: true,
+                ui: true
+            },
+            logging: {
+                console: {
+                    level: "info",
+                    metrics: false,
+                    audit: false
+                }
+            },
+            exportGlobalContextKeys: false,
+            functionGlobalContext: {
+                infrastructure: {
+                    timezone: "$${TZ}",
+                    sqlserver: {
+                        host: "$${SQLSERVER_HOST}",
+                        port: $${SQLSERVER_PORT},
+                        user: "$${SQLSERVER_USER}"
+                    }
+                }
+            },
+            palette: {
+                editable: true
+            },
+            editorTheme: {
+                projects: {
+                    enabled: false
+                }
+            }
+        }
+        EOF
+    volumes:
+      - node_red_data:/data
+      - ./build/node-red:/generated
+    networks:
+      - stack_internal
+
+  node_red:
+    image: ${NODE_RED_IMAGE}
+    container_name: ${NODE_RED_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+      node_red_init:
+        condition: service_completed_successfully
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "127.0.0.1:${NODE_RED_HOST_PORT}:1880"
+    volumes:
+      - node_red_data:/data
+      - ./build/node-red/settings.js:/data/settings.js:ro
+    networks:
+      - stack_internal
+
+networks:
+  stack_internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  node_red_data:
+    name: ${NODE_RED_CONTAINER_NAME}-data
+  sqlserver_data:
+    name: ${SQLSERVER_CONTAINER_NAME}-data
