@@ -1,0 +1,36 @@
+# Copy to terraform.tfvars and fill with real values (do not commit secrets).
+timezone                    = "America/Sao_Paulo"
+node_red_container_name     = "prefacwb-node1"
+node_red_cname              = "prefacwb-node1"
+sqlserver_container_name    = "prefacwb-sqlserver1"
+sqlserver_sa_username       = "sa"
+sqlserver_sa_password       = "change-me"
+cloudflared_container_name  = "prefacwb-cloudflared1"
+node_red_admin_username     = "admin"
+node_red_admin_password      = "0102030405!"
+node_red_credential_secret   = "set-your-own-secret"
+node_red_extra_modules       = [
+  "https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.3.tgz",
+  "node-red-contrib-mssql-plus",
+  "node-red-contrib-xlsx-to-json",
+  "node-red-contrib-minio-all",
+]
+
+minio_endpoint         = "https://minio2.kastner.com.br"
+minio_access_key       = "minioadmin"
+minio_secret_key       = "change-me"
+minio_bucket_name      = "prefacwb"
+minio_bucket_folders   = ["backup"]
+backup_enabled         = true
+backup_cron_schedule   = "0 0 * * *"
+backup_retention_days  = 14
+backup_sqlserver_prefix = "backup/sqlserver"
+backup_node_red_prefix = "backup/node-red"
+
+cloudflare_api_token      = "CLOUDFLARE_API_TOKEN"
+cloudflare_account_id     = "CLOUDFLARE_ACCOUNT_ID"
+cloudflare_zone_id        = "CLOUDFLARE_ZONE_ID"
+cloudflare_zone_name      = "kastner.com.br"
+cloudflare_origin_address = "192.168.0.66"
+cloudflare_proxied        = true
+cloudflare_tunnel_name    = "prefacwb-tunnel"

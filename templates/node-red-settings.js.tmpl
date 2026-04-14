@@ -1,0 +1,45 @@
+module.exports = {
+    uiPort: process.env.PORT || 1880,
+    uiHost: "0.0.0.0",
+    credentialSecret: "${credential_secret}",
+    adminAuth: {
+        type: "credentials",
+        users: [
+            {
+                username: "${admin_user}",
+                password: require("bcryptjs").hashSync(process.env.NODE_RED_ADMIN_PASSWORD || "0102030405!", 8),
+                permissions: "*"
+            }
+        ]
+    },
+    diagnostics: {
+        enabled: true,
+        ui: true
+    },
+    logging: {
+        console: {
+            level: "info",
+            metrics: false,
+            audit: false
+        }
+    },
+    exportGlobalContextKeys: false,
+    functionGlobalContext: {
+        infrastructure: {
+            timezone: "${timezone}",
+            sqlserver: {
+                host: "${sqlserver_host}",
+                port: ${sqlserver_port},
+                user: "${sqlserver_user}"
+            }
+        }
+    },
+    palette: {
+        editable: true
+    },
+    editorTheme: {
+        projects: {
+            enabled: false
+        }
+    }
+}

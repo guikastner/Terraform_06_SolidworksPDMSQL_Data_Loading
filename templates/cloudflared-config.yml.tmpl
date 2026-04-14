@@ -1,0 +1,7 @@
+tunnel: ${tunnel_id}
+credentials-file: ${credentials_file}
+
+ingress:
+  - hostname: ${ingress_hostname}
+    service: ${ingress_service}
+  - service: http_status:404
