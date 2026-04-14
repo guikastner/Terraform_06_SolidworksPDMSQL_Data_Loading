@@ -58,6 +58,12 @@ variable "sqlserver_edition" {
   default     = "Developer"
 }
 
+variable "sqlserver_restore_enabled" {
+  description = "If true, restores local .bak files found in `database/` or `databases/` during `tofu apply`."
+  type        = bool
+  default     = true
+}
+
 variable "cloudflared_container_name" {
   description = "Container name used for the cloudflared tunnel agent."
   type        = string

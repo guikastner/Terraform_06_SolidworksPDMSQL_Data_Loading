@@ -14,6 +14,12 @@ locals {
 
   data_root = "/DATA/AppData"
 
+  sqlserver_restore_relative_files = distinct(concat(
+    fileset(path.module, "database/*.bak"),
+    fileset(path.module, "databases/*.bak"),
+  ))
+  sqlserver_restore_files = [for bak_file in local.sqlserver_restore_relative_files : abspath("${path.module}/${bak_file}")]
+
   node_red_generated_dir = abspath("${path.module}/build/node-red")
   node_red_settings_path = abspath("${local.node_red_generated_dir}/settings.js")
 

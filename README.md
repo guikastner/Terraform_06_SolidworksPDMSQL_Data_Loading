@@ -70,6 +70,15 @@ Each run:
   - `backup/sqlserver`
   - `backup/node-red`
 
+## Restore on deploy
+- If `sqlserver_restore_enabled = true`, `tofu apply` looks for `.bak` files in `database/` and `databases/`.
+- Each matching file is copied into the SQL Server container and restored automatically.
+- The restore resource re-runs when:
+  - a `.bak` file changes,
+  - a new `.bak` file is added or removed,
+  - the SQL Server container is recreated.
+- The restore always uses the original database name stored inside the `.bak` metadata (`RESTORE HEADERONLY`), not the backup filename.
+
 ## Files
 - `variables.tf`: new input schema
 - `containers.tf`: Node-RED and SQL Server containers
