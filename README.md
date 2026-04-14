@@ -5,6 +5,7 @@ This repository provisions the stack described in `Agents.md` with OpenTofu and 
 ## Components
 - 1 `Node-RED` container from `nodered/node-red:4.1.4-22`
 - 1 `SQL Server` container from `mcr.microsoft.com/mssql/server:2022-latest`
+- 1 `WebDB` container from `webdb/app:latest`
 - 1 `cloudflared` container for the Cloudflare tunnel
 - 1 internal Docker network with `internal = true`
 - named Docker volumes for Node-RED and SQL Server persistence
@@ -31,6 +32,8 @@ Main variables:
 - `node_red_admin_username`
 - `node_red_admin_password`
 - `sqlserver_container_name`
+- `webdb_container_name`
+- `webdb_cname`
 - `sqlserver_sa_password`
 - `cloudflared_container_name`
 - `minio_access_key`
@@ -57,6 +60,7 @@ The tunnel is still created by OpenTofu. The implementation keeps:
 - `cloudflare_zero_trust_tunnel_cloudflared_config`
 - a `cloudflare_record` CNAME pointing to `${tunnel_id}.cfargotunnel.com`
 - the `cloudflared` container mounted with generated config and credentials
+- ingress for both Node-RED and WebDB over the same tunnel
 
 All Cloudflare inputs now come directly from `terraform.tfvars`. Runtime tunnel files are rendered under `build/cloudflare/`.
 
@@ -81,7 +85,7 @@ Each run:
 
 ## Files
 - `variables.tf`: new input schema
-- `containers.tf`: Node-RED and SQL Server containers
+- `containers.tf`: Node-RED, SQL Server, and WebDB containers
 - `cloudflare.tf` / `cloudflare_dns.tf`: tunnel, agent, and DNS resources
 - `scripts/minio_setup.sh`: bucket and folder bootstrap
 - `scripts/backup_run.sh`: SQL Server and Node-RED backup workflow
@@ -100,5 +104,5 @@ tofu apply
 ## Notes
 - No container publishes host ports.
 - Node-RED and cloudflared use the internal network plus Docker `bridge` for outbound internet access.
-- SQL Server stays only on the internal network.
+- SQL Server and WebDB stay only on the internal network.
 - `terraform.tfvars` remains ignored by Git.

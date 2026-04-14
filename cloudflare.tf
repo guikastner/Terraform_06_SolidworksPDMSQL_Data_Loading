@@ -18,8 +18,12 @@ resource "local_file" "cloudflared_config" {
     {
       tunnel_id        = cloudflare_zero_trust_tunnel_cloudflared.tunnel.id
       credentials_file = "/etc/cloudflared/credentials.json"
-      ingress_hostname = local.node_red_instance.hostname
-      ingress_service  = "http://${local.node_red_instance.name}:1880"
+      ingress_entries = join("\n", [
+        "  - hostname: ${local.node_red_instance.hostname}",
+        "    service: http://${local.node_red_instance.name}:1880",
+        "  - hostname: ${local.webdb_instance.hostname}",
+        "    service: http://${local.webdb_instance.name}:22071",
+      ])
     }
   )
 

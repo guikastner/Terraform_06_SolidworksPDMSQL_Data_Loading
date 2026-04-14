@@ -68,3 +68,20 @@ resource "docker_container" "sqlserver" {
     docker_volume.sqlserver_data,
   ]
 }
+
+resource "docker_container" "webdb" {
+  name     = local.webdb_instance.name
+  image    = docker_image.webdb.image_id
+  restart  = "unless-stopped"
+  hostname = local.webdb_instance.name
+
+  networks_advanced {
+    name    = docker_network.main.name
+    aliases = [local.webdb_instance.name]
+  }
+
+  depends_on = [
+    docker_network.main,
+    docker_container.sqlserver,
+  ]
+}

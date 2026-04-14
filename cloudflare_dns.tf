@@ -15,6 +15,11 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "tunnel" {
     }
 
     ingress_rule {
+      hostname = local.webdb_instance.hostname
+      service  = "http://${local.webdb_instance.name}:22071"
+    }
+
+    ingress_rule {
       service = "http_status:404"
     }
   }
@@ -23,6 +28,14 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "tunnel" {
 resource "cloudflare_record" "node_red_cname" {
   zone_id = var.cloudflare_zone_id
   name    = var.node_red_cname
+  type    = "CNAME"
+  content = "${cloudflare_zero_trust_tunnel_cloudflared.tunnel.id}.cfargotunnel.com"
+  proxied = var.cloudflare_proxied
+}
+
+resource "cloudflare_record" "webdb_cname" {
+  zone_id = var.cloudflare_zone_id
+  name    = var.webdb_cname
   type    = "CNAME"
   content = "${cloudflare_zero_trust_tunnel_cloudflared.tunnel.id}.cfargotunnel.com"
   proxied = var.cloudflare_proxied

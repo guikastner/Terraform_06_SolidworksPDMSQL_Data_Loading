@@ -3,6 +3,11 @@ output "node_red_hostname" {
   value       = local.node_red_instance.hostname
 }
 
+output "webdb_hostname" {
+  description = "Hostname assigned to the WebDB instance for Cloudflare tunnel ingress."
+  value       = local.webdb_instance.hostname
+}
+
 output "network_name" {
   description = "Internal Docker network used by all services."
   value       = docker_network.main.name

@@ -64,6 +64,24 @@ variable "sqlserver_restore_enabled" {
   default     = true
 }
 
+variable "webdb_container_name" {
+  description = "Container name used for the WebDB service."
+  type        = string
+  default     = "webdb1"
+}
+
+variable "webdb_cname" {
+  description = "Cloudflare CNAME label that should route to the WebDB service."
+  type        = string
+  default     = "webdb1"
+}
+
+variable "webdb_image" {
+  description = "Container image for WebDB."
+  type        = string
+  default     = "webdb/app:latest"
+}
+
 variable "cloudflared_container_name" {
   description = "Container name used for the cloudflared tunnel agent."
   type        = string

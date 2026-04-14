@@ -8,6 +8,11 @@ locals {
     name = var.sqlserver_container_name
   }
 
+  webdb_instance = {
+    name     = var.webdb_container_name
+    hostname = var.cloudflare_zone_name != "" ? "${var.webdb_cname}.${var.cloudflare_zone_name}" : var.webdb_cname
+  }
+
   cloudflared_instance = {
     name = var.cloudflared_container_name
   }
@@ -15,8 +20,8 @@ locals {
   data_root = "/DATA/AppData"
 
   sqlserver_restore_relative_files = distinct(concat(
-    fileset(path.module, "database/*.bak"),
-    fileset(path.module, "databases/*.bak"),
+    tolist(fileset(path.module, "database/*.bak")),
+    tolist(fileset(path.module, "databases/*.bak")),
   ))
   sqlserver_restore_files = [for bak_file in local.sqlserver_restore_relative_files : abspath("${path.module}/${bak_file}")]
 

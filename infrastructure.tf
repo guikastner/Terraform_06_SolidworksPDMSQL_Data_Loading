@@ -14,6 +14,11 @@ resource "docker_image" "sqlserver" {
   keep_locally = true
 }
 
+resource "docker_image" "webdb" {
+  name         = var.webdb_image
+  keep_locally = true
+}
+
 resource "docker_image" "cloudflared" {
   name         = var.cloudflared_image
   keep_locally = true
