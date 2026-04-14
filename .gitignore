@@ -9,3 +9,4 @@ Agents.md
 *.bak
 
 *.terraform
+*.tfvars
