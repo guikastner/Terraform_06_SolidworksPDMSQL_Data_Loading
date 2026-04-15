@@ -41,6 +41,7 @@ services:
       - |
         set -euo pipefail
         if [[ "$${SQLSERVER_RESTORE_ENABLED:-true}" != "true" ]]; then
+          echo "sqlserver_restore: restore disabled by SQLSERVER_RESTORE_ENABLED"
           exit 0
         fi
         if [[ -x /opt/mssql-tools18/bin/sqlcmd ]]; then
@@ -54,11 +55,14 @@ services:
         shopt -s nullglob
         restore_files=(/restore/database/*.bak /restore/databases/*.bak)
         if [[ $${#restore_files[@]} -eq 0 ]]; then
+          echo "sqlserver_restore: no .bak files found in /restore/database or /restore/databases"
           exit 0
         fi
+        echo "sqlserver_restore: found $${#restore_files[@]} backup file(s)"
         run_sqlcmd() {
           local query="$$1"
           SQLCMDPASSWORD="$${SQLSERVER_SA_PASSWORD}" "$${SQLCMD_PATH}" \
+            -b \
             -S "$${SQLSERVER_HOST}" \
             -U "$${SQLSERVER_SA_USERNAME}" \
             -C \
@@ -67,14 +71,30 @@ services:
             -h -1 \
             -Q "$${query}"
         }
+        echo "sqlserver_restore: waiting for SQL query readiness on $${SQLSERVER_HOST}"
+        ready=0
+        for _attempt in {1..30}; do
+          if run_sqlcmd "SELECT 1" >/dev/null 2>&1; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [[ "$${ready}" -ne 1 ]]; then
+          echo "sqlserver_restore: SQL Server did not become query-ready in time" >&2
+          exit 1
+        fi
+        echo "sqlserver_restore: SQL Server is query-ready"
         for restore_file in "$${restore_files[@]}"; do
-          db_name="$$(run_sqlcmd "RESTORE HEADERONLY FROM DISK = N'$${restore_file}'" | head -n 1 | cut -d'|' -f11 | tr -d '\r')"
+          echo "sqlserver_restore: inspecting backup $${restore_file}"
+          db_name="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE HEADERONLY FROM DISK = N'$${restore_file}'" | grep '|' | head -n 1 | cut -d'|' -f10 | tr -d '\r')"
           if [[ -z "$${db_name}" ]]; then
             echo "Could not extract original database name from backup header: $${restore_file}" >&2
             exit 1
           fi
+          echo "sqlserver_restore: backup database name is $${db_name}"
           escaped_db_name="$${db_name//]/]]}"
-          file_list="$$(run_sqlcmd "RESTORE FILELISTONLY FROM DISK = N'$${restore_file}'")"
+          file_list="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE FILELISTONLY FROM DISK = N'$${restore_file}'" | grep '|')"
           data_index=0
           log_index=0
           move_clauses=()
@@ -82,6 +102,13 @@ services:
             logical_name="$$(printf '%s' "$${logical_name}" | tr -d '\r')"
             file_type="$$(printf '%s' "$${file_type}" | tr -d '\r')"
             [[ -n "$${logical_name}" ]] || continue
+            case "$${file_type}" in
+              L|D|F|S)
+                ;;
+              *)
+                continue
+                ;;
+            esac
             case "$${file_type}" in
               L)
                 log_index=$$((log_index + 1))
@@ -109,17 +136,35 @@ services:
           fi
           move_clause_sql="$$(printf ', %s' "$${move_clauses[@]}")"
           move_clause_sql="$${move_clause_sql:2}"
+          echo "sqlserver_restore: restoring $${db_name} from $${restore_file}"
           restore_query="
         IF DB_ID(N'$${escaped_db_name}') IS NOT NULL
         BEGIN
           ALTER DATABASE [$${escaped_db_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
         END;
+        SET NOCOUNT ON;
         RESTORE DATABASE [$${escaped_db_name}]
         FROM DISK = N'$${restore_file}'
         WITH REPLACE, RECOVERY, $${move_clause_sql};
         ALTER DATABASE [$${escaped_db_name}] SET MULTI_USER;"
-          run_sqlcmd "$${restore_query}" >/dev/null
+          restored=0
+          for restore_attempt in {1..10}; do
+            if restore_output="$$(run_sqlcmd "$${restore_query}" 2>&1)"; then
+              restored=1
+              break
+            fi
+            echo "sqlserver_restore: restore attempt $${restore_attempt} failed for $${db_name}" >&2
+            echo "$${restore_output}" >&2
+            sleep 3
+          done
+          if [[ "$${restored}" -ne 1 ]]; then
+            echo "sqlserver_restore: restore failed permanently for $${db_name}" >&2
+            exit 1
+          fi
+          printf '%s\n' "$${restore_output}"
+          echo "sqlserver_restore: restore completed for $${db_name}"
         done
+        echo "sqlserver_restore: all backup restores completed successfully"
     volumes:
       - ./database:/restore/database:ro
       - ./databases:/restore/databases:ro
