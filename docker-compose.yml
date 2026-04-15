@@ -135,12 +135,32 @@ services:
     networks:
       - stack_internal
 
+  node_red_init:
+    image: ${NODE_RED_IMAGE}
+    container_name: ${NODE_RED_CONTAINER_NAME}-init
+    restart: "no"
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        cd /data
+        npm install --no-fund --no-update-notifier --omit=dev \
+          https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.3.tgz
+    volumes:
+      - node_red_data:/data
+    networks:
+      - stack_internal
+
   node_red:
     image: ${NODE_RED_IMAGE}
     container_name: ${NODE_RED_CONTAINER_NAME}
     restart: unless-stopped
     depends_on:
-      sqlserver_restore:
+      node_red_init:
         condition: service_completed_successfully
     environment:
       TZ: ${TZ}
