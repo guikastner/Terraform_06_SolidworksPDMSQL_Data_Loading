@@ -22,6 +22,25 @@ This means there are two distinct classes of variables:
 
 Some variables are both.
 
+## Added MCP Service
+
+This repository now includes an optional MSSQL MCP service based on `mcprunner/mssqlmcp`.
+
+Purpose:
+- expose a SQL Server MCP endpoint over HTTP for MCP-capable clients such as VS Code
+
+What this integration does:
+- adds a long-running `mssql_mcp` service to `docker-compose.yml`
+- persists MCP server state under Docker volumes
+- exposes the MCP endpoint on `127.0.0.1:${MSSQL_MCP_HOST_PORT}`
+
+What this integration does not do automatically:
+- provision SQL connection definitions inside the MCP server
+- generate editor-specific MCP config files
+- inject SQL credentials into the MCP server's internal connection store
+
+Those connection definitions are managed by the MCP server itself after startup.
+
 ## Operational Notes
 
 ### Persistence-sensitive variables
@@ -496,6 +515,123 @@ Impact:
 Risk:
 - low
 
+### `MSSQL_MCP_CONTAINER_NAME`
+
+Purpose:
+- defines the MSSQL MCP container name
+- defines the backing names of the MCP data and log volumes
+
+Consumed by:
+- `mssql_mcp.container_name`
+- `volumes.mssql_mcp_data.name`
+- `volumes.mssql_mcp_logs.name`
+
+Current example/default:
+
+```env
+MSSQL_MCP_CONTAINER_NAME=mssqlmcp1
+```
+
+Impact:
+- renames the MCP container
+- changes which Docker volumes back the MCP server state and logs
+
+Risk:
+- medium
+
+### `MSSQL_MCP_IMAGE`
+
+Purpose:
+- selects the MSSQL MCP image
+
+Consumed by:
+- `mssql_mcp.image`
+
+Current example/default:
+
+```env
+MSSQL_MCP_IMAGE=mcprunner/mssqlmcp:1.0.9.5
+```
+
+Impact:
+- changes the MCP server implementation version
+- may change tool names, authentication behavior, or runtime expectations
+
+Risk:
+- medium to high
+
+Important note:
+- this image is sourced from Docker Hub and documented at `mcprunner/mssqlmcp`
+- pinning a tag is safer than relying on `latest`
+
+### `MSSQL_MCP_HOST_PORT`
+
+Purpose:
+- publishes the MSSQL MCP HTTP endpoint on the host
+
+Consumed by:
+- `mssql_mcp.ports`
+
+Current example/default:
+
+```env
+MSSQL_MCP_HOST_PORT=3001
+```
+
+Impact:
+- changes where MCP-capable clients connect on the host
+
+Risk:
+- low
+
+### `MSSQL_MCP_KEY`
+
+Purpose:
+- defines the master encryption key used by the MCP server to encrypt stored connection strings
+
+Consumed by:
+- `mssql_mcp.environment.MSSQL_MCP_KEY`
+
+Current example/default:
+
+```env
+MSSQL_MCP_KEY=change-this-encryption-key
+```
+
+Impact:
+- protects connection definitions persisted by the MCP server
+
+Risk:
+- high
+
+Important notes:
+- should be long and cryptographically strong
+- changing it later may invalidate access to previously stored encrypted connection strings unless the server provides a supported rotation path
+
+### `MSSQL_MCP_API_KEY`
+
+Purpose:
+- defines the API key clients must send in `X-API-Key`
+
+Consumed by:
+- `mssql_mcp.environment.MSSQL_MCP_API_KEY`
+
+Current example/default:
+
+```env
+MSSQL_MCP_API_KEY=change-this-api-key
+```
+
+Impact:
+- controls access to the MCP server endpoint
+
+Risk:
+- high
+
+Important notes:
+- should be treated as a secret
+- clients such as VS Code MCP need this same value in request headers
+
 ## Recommended Configuration Practices
 
 ### For local development
@@ -534,6 +670,11 @@ Risk:
 | `WEBDB_CONTAINER_NAME` | Yes | No | Yes | Naming only |
 | `WEBDB_IMAGE` | Usually | No | Yes | Runtime version changes |
 | `WEBDB_HOST_PORT` | Yes | No | Yes | Host port only |
+| `MSSQL_MCP_CONTAINER_NAME` | No | Yes | Yes | Changes MCP data/log volume names |
+| `MSSQL_MCP_IMAGE` | Usually not casually | Possibly | Yes | MCP server behavior can change |
+| `MSSQL_MCP_HOST_PORT` | Yes | No | Yes | Host port only |
+| `MSSQL_MCP_KEY` | No | Yes | Yes | Can affect encrypted MCP connection storage |
+| `MSSQL_MCP_API_KEY` | Yes | No | Yes | Client authentication secret |
 
 ## Related Files
 

@@ -7,6 +7,7 @@ The stack provides:
 - `node-red` based on `nodered/node-red:4.1.4-22`
 - `sqlserver` based on `mcr.microsoft.com/mssql/server:2022-latest`
 - `webdb` based on `webdb/app:latest`
+- `mssql_mcp` based on `mcprunner/mssqlmcp:1.0.9.5`
 - one internal Docker network
 - named volumes for Node-RED and SQL Server persistence
 
@@ -15,6 +16,7 @@ The intent of this variation is to keep the project self-contained and runnable 
 ## Architecture
 - `sqlserver` runs on the internal Docker network only.
 - `webdb` runs on the internal Docker network and is published locally on `127.0.0.1:${WEBDB_HOST_PORT}`.
+- `mssql_mcp` runs on the internal Docker network and is published locally on `127.0.0.1:${MSSQL_MCP_HOST_PORT}`.
 - `node_red` runs on the internal Docker network and is published locally on `127.0.0.1:${NODE_RED_HOST_PORT}`.
 - `node_red_init` is a one-shot initialization service that:
   - creates the Node-RED `settings.js`
@@ -60,17 +62,23 @@ That means it depends on emulation support in Docker. This may be slow, unstable
    - `SQLSERVER_SA_PASSWORD`
    - `WEBDB_CONTAINER_NAME`
    - `WEBDB_HOST_PORT`
+   - `MSSQL_MCP_CONTAINER_NAME`
+   - `MSSQL_MCP_HOST_PORT`
+   - `MSSQL_MCP_KEY`
+   - `MSSQL_MCP_API_KEY`
 4. Review these image and platform variables:
    - `NODE_RED_IMAGE`
    - `SQLSERVER_IMAGE`
    - `SQLSERVER_PLATFORM`
    - `WEBDB_IMAGE`
+   - `MSSQL_MCP_IMAGE`
 
 ## Default environment variables
 The example file currently defines:
 - timezone: `America/Sao_Paulo`
 - Node-RED host port: `1880`
 - WebDB host port: `22071`
+- MSSQL MCP host port: `3001`
 - SQL Server edition: `Developer`
 - SQL Server platform: `linux/amd64`
 
@@ -85,8 +93,9 @@ The expected startup order is:
 1. `sqlserver`
 2. `sqlserver_restore`
 3. `webdb`
-4. `node_red_init`
-5. `node_red`
+4. `mssql_mcp`
+5. `node_red_init`
+6. `node_red`
 
 Check status:
 
@@ -118,6 +127,7 @@ Use `-v` only if you explicitly want to delete Node-RED and SQL Server persisten
 ## Access
 - Node-RED: `http://127.0.0.1:${NODE_RED_HOST_PORT}`
 - WebDB: `http://127.0.0.1:${WEBDB_HOST_PORT}`
+- MSSQL MCP: `http://127.0.0.1:${MSSQL_MCP_HOST_PORT}`
 
 SQL Server is not published to the host in this variation.
 
@@ -125,6 +135,8 @@ SQL Server is not published to the host in this variation.
 The stack uses named volumes:
 - `node_red_data`
 - `sqlserver_data`
+- `mssql_mcp_data`
+- `mssql_mcp_logs`
 
 These volumes survive container recreation unless explicitly removed.
 
@@ -210,6 +222,29 @@ Inspect:
 
 ```bash
 docker compose logs webdb
+```
+
+### MSSQL MCP does not come up
+Inspect:
+
+```bash
+docker compose logs mssql_mcp
+```
+
+To use it from VS Code MCP, configure a server URL pointing to:
+
+```json
+{
+  "servers": {
+    "sql-server-mcp": {
+      "url": "http://localhost:${MSSQL_MCP_HOST_PORT}",
+      "headers": {
+        "X-API-Key": "<your MSSQL_MCP_API_KEY>",
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
 ```
 
 ### Validate the resolved Compose configuration

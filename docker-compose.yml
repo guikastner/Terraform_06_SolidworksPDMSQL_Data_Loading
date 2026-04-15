@@ -183,6 +183,24 @@ services:
     networks:
       - stack_internal
 
+  mssql_mcp:
+    image: ${MSSQL_MCP_IMAGE}
+    container_name: ${MSSQL_MCP_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    environment:
+      MSSQL_MCP_KEY: ${MSSQL_MCP_KEY}
+      MSSQL_MCP_API_KEY: ${MSSQL_MCP_API_KEY}
+    ports:
+      - "${MSSQL_MCP_HOST_PORT}:3001"
+    volumes:
+      - mssql_mcp_data:/app/Data
+      - mssql_mcp_logs:/app/Logs
+    networks:
+      - stack_internal
+
   node_red_init:
     image: ${NODE_RED_IMAGE}
     container_name: ${NODE_RED_CONTAINER_NAME}-init
@@ -231,3 +249,7 @@ volumes:
     name: ${NODE_RED_CONTAINER_NAME}-data
   sqlserver_data:
     name: ${SQLSERVER_CONTAINER_NAME}-data
+  mssql_mcp_data:
+    name: ${MSSQL_MCP_CONTAINER_NAME}-data
+  mssql_mcp_logs:
+    name: ${MSSQL_MCP_CONTAINER_NAME}-logs
