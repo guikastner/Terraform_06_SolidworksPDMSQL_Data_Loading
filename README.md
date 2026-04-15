@@ -30,6 +30,7 @@ The intent of this variation is to keep the project self-contained and runnable 
   - WebDB image
   - Node-RED image
   - Node-RED and SQL Server named volumes
+  
 
 ## Important architecture note
 The official SQL Server Linux container image is supported on `x86_64`.

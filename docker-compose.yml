@@ -131,87 +131,7 @@ services:
       sqlserver_restore:
         condition: service_completed_successfully
     ports:
-      - "127.0.0.1:${WEBDB_HOST_PORT}:22071"
-    networks:
-      - stack_internal
-
-  node_red_init:
-    image: ${NODE_RED_IMAGE}
-    container_name: ${NODE_RED_CONTAINER_NAME}-init
-    restart: "no"
-    environment:
-      TZ: ${TZ}
-      NODE_RED_ADMIN_USERNAME: ${NODE_RED_ADMIN_USERNAME}
-      NODE_RED_ADMIN_PASSWORD: ${NODE_RED_ADMIN_PASSWORD}
-      NODE_RED_CREDENTIAL_SECRET: ${NODE_RED_CREDENTIAL_SECRET}
-      NODE_RED_EXTRA_MODULES: ${NODE_RED_EXTRA_MODULES}
-      SQLSERVER_HOST: ${SQLSERVER_CONTAINER_NAME}
-      SQLSERVER_PORT: "1433"
-      SQLSERVER_USER: ${SQLSERVER_SA_USERNAME}
-    entrypoint:
-      - /bin/sh
-      - -lc
-      - |
-        set -eu
-        mkdir -p /generated /data
-        admin_hash="$$(node-red admin hash-pw --password "$${NODE_RED_ADMIN_PASSWORD}" | tail -n 1 | tr -d '\r')"
-        if [ -n "$${NODE_RED_EXTRA_MODULES:-}" ]; then
-          OLD_IFS="$$IFS"
-          IFS=','
-          set -- $${NODE_RED_EXTRA_MODULES}
-          IFS="$$OLD_IFS"
-          npm install --no-progress --no-audit --unsafe-perm --prefix /data "$$@"
-        fi
-        cat > /generated/settings.js <<EOF
-        module.exports = {
-            uiPort: process.env.PORT || 1880,
-            uiHost: "0.0.0.0",
-            credentialSecret: "$${NODE_RED_CREDENTIAL_SECRET}",
-            adminAuth: {
-                type: "credentials",
-                users: [
-                    {
-                        username: "$${NODE_RED_ADMIN_USERNAME}",
-                        password: "$${admin_hash}",
-                        permissions: "*"
-                    }
-                ]
-            },
-            diagnostics: {
-                enabled: true,
-                ui: true
-            },
-            logging: {
-                console: {
-                    level: "info",
-                    metrics: false,
-                    audit: false
-                }
-            },
-            exportGlobalContextKeys: false,
-            functionGlobalContext: {
-                infrastructure: {
-                    timezone: "$${TZ}",
-                    sqlserver: {
-                        host: "$${SQLSERVER_HOST}",
-                        port: $${SQLSERVER_PORT},
-                        user: "$${SQLSERVER_USER}"
-                    }
-                }
-            },
-            palette: {
-                editable: true
-            },
-            editorTheme: {
-                projects: {
-                    enabled: false
-                }
-            }
-        }
-        EOF
-    volumes:
-      - node_red_data:/data
-      - ./build/node-red:/generated
+      - "${WEBDB_HOST_PORT}:22071"
     networks:
       - stack_internal
 
@@ -222,22 +142,18 @@ services:
     depends_on:
       sqlserver_restore:
         condition: service_completed_successfully
-      node_red_init:
-        condition: service_completed_successfully
     environment:
       TZ: ${TZ}
     ports:
-      - "127.0.0.1:${NODE_RED_HOST_PORT}:1880"
+      - "${NODE_RED_HOST_PORT}:1880"
     volumes:
       - node_red_data:/data
-      - ./build/node-red/settings.js:/data/settings.js:ro
     networks:
       - stack_internal
 
 networks:
   stack_internal:
     driver: bridge
-    internal: true
 
 volumes:
   node_red_data:
