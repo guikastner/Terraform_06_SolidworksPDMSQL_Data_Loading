@@ -455,62 +455,65 @@ Risk:
 Important note:
 - useful when the SQL Server volume already contains the desired database state and re-restore is not wanted
 
-### `WEBDB_CONTAINER_NAME`
+### `DBGATE_CONTAINER_NAME`
 
 Purpose:
-- defines the WebDB container name
+- defines the DbGate container name
+- defines the persisted DbGate volume name suffix
 
 Consumed by:
-- `webdb.container_name`
+- `dbgate.container_name`
+- `volumes.dbgate_data.name`
 
 Current example/default:
 
 ```env
-WEBDB_CONTAINER_NAME=webdb1
+DBGATE_CONTAINER_NAME=dbgate1
 ```
 
 Impact:
-- container naming only
+- renames the container
+- changes which DbGate state volume is used
 
 Risk:
-- low
+- medium
 
-### `WEBDB_IMAGE`
+### `DBGATE_IMAGE`
 
 Purpose:
-- selects the WebDB image
+- selects the DbGate image
 
 Consumed by:
-- `webdb.image`
+- `dbgate.image`
 
 Current example/default:
 
 ```env
-WEBDB_IMAGE=webdb/app:latest
+DBGATE_IMAGE=dbgate/dbgate:latest
 ```
 
 Impact:
-- changes WebDB runtime version
+- changes DbGate runtime version
 
 Risk:
 - medium if relying on `latest`
 
-### `WEBDB_HOST_PORT`
+### `DBGATE_HOST_PORT`
 
 Purpose:
-- publishes WebDB on the host
+- publishes DbGate on the host
 
 Consumed by:
-- `webdb.ports`
+- `dbgate.ports`
 
 Current example/default:
 
 ```env
-WEBDB_HOST_PORT=22071
+DBGATE_HOST_PORT=3000
 ```
 
 Impact:
-- changes host access port for WebDB
+- changes host access port for DbGate
 
 Risk:
 - low
@@ -667,9 +670,9 @@ Important notes:
 | `SQLSERVER_SA_PASSWORD` | Not on existing volumes | Yes | Yes | Existing volume keeps original real password |
 | `SQLSERVER_EDITION` | Usually not casually | No | Yes | Licensing/features |
 | `SQLSERVER_RESTORE_ENABLED` | Yes | No | Yes | Controls auto-restore behavior |
-| `WEBDB_CONTAINER_NAME` | Yes | No | Yes | Naming only |
-| `WEBDB_IMAGE` | Usually | No | Yes | Runtime version changes |
-| `WEBDB_HOST_PORT` | Yes | No | Yes | Host port only |
+| `DBGATE_CONTAINER_NAME` | No | Yes | Yes | Changes DbGate state volume name |
+| `DBGATE_IMAGE` | Usually | No | Yes | Runtime version changes |
+| `DBGATE_HOST_PORT` | Yes | No | Yes | Host port only |
 | `MSSQL_MCP_CONTAINER_NAME` | No | Yes | Yes | Changes MCP data/log volume names |
 | `MSSQL_MCP_IMAGE` | Usually not casually | Possibly | Yes | MCP server behavior can change |
 | `MSSQL_MCP_HOST_PORT` | Yes | No | Yes | Host port only |

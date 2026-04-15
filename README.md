@@ -1,4 +1,4 @@
-# Node-RED + SQL Server + WebDB (Docker Compose)
+# Node-RED + SQL Server + DbGate (Docker Compose)
 
 This branch is the Docker Compose variation of the project. It does not use OpenTofu, Cloudflare, MinIO, or any provisioned backup routine.
 
@@ -6,16 +6,16 @@ This branch is the Docker Compose variation of the project. It does not use Open
 The stack provides:
 - `node-red` based on `nodered/node-red:4.1.4-22`
 - `sqlserver` based on `mcr.microsoft.com/mssql/server:2022-latest`
-- `webdb` based on `webdb/app:latest`
+- `dbgate` based on `dbgate/dbgate:latest`
 - `mssql_mcp` based on `mcprunner/mssqlmcp:1.0.9.5`
 - one internal Docker network
-- named volumes for Node-RED and SQL Server persistence
+- named volumes for Node-RED, SQL Server, DbGate, and MCP persistence
 
 The intent of this variation is to keep the project self-contained and runnable with Docker Compose only.
 
 ## Architecture
 - `sqlserver` runs on the internal Docker network only.
-- `webdb` runs on the internal Docker network and is published locally on `127.0.0.1:${WEBDB_HOST_PORT}`.
+- `dbgate` runs on the internal Docker network and is published locally on `127.0.0.1:${DBGATE_HOST_PORT}`.
 - `mssql_mcp` runs on the internal Docker network and is published locally on `127.0.0.1:${MSSQL_MCP_HOST_PORT}`.
 - `node_red` runs on the internal Docker network and is published locally on `127.0.0.1:${NODE_RED_HOST_PORT}`.
 - `node_red_init` is a one-shot initialization service that:
@@ -29,9 +29,9 @@ The intent of this variation is to keep the project self-contained and runnable 
 - Docker Compose v2 available through `docker compose`
 - enough disk space for:
   - SQL Server image
-  - WebDB image
+  - DbGate image
   - Node-RED image
-  - Node-RED and SQL Server named volumes
+  - Node-RED, SQL Server, DbGate, and MCP named volumes
   
 
 ## Important architecture note
@@ -60,8 +60,8 @@ That means it depends on emulation support in Docker. This may be slow, unstable
    - `NODE_RED_CREDENTIAL_SECRET`
    - `SQLSERVER_CONTAINER_NAME`
    - `SQLSERVER_SA_PASSWORD`
-   - `WEBDB_CONTAINER_NAME`
-   - `WEBDB_HOST_PORT`
+   - `DBGATE_CONTAINER_NAME`
+   - `DBGATE_HOST_PORT`
    - `MSSQL_MCP_CONTAINER_NAME`
    - `MSSQL_MCP_HOST_PORT`
    - `MSSQL_MCP_KEY`
@@ -70,14 +70,14 @@ That means it depends on emulation support in Docker. This may be slow, unstable
    - `NODE_RED_IMAGE`
    - `SQLSERVER_IMAGE`
    - `SQLSERVER_PLATFORM`
-   - `WEBDB_IMAGE`
+   - `DBGATE_IMAGE`
    - `MSSQL_MCP_IMAGE`
 
 ## Default environment variables
 The example file currently defines:
 - timezone: `America/Sao_Paulo`
 - Node-RED host port: `1880`
-- WebDB host port: `22071`
+- DbGate host port: `3000`
 - MSSQL MCP host port: `3001`
 - SQL Server edition: `Developer`
 - SQL Server platform: `linux/amd64`
@@ -92,7 +92,7 @@ docker compose up -d
 The expected startup order is:
 1. `sqlserver`
 2. `sqlserver_restore`
-3. `webdb`
+3. `dbgate`
 4. `mssql_mcp`
 5. `node_red_init`
 6. `node_red`
@@ -126,7 +126,7 @@ Use `-v` only if you explicitly want to delete Node-RED and SQL Server persisten
 
 ## Access
 - Node-RED: `http://127.0.0.1:${NODE_RED_HOST_PORT}`
-- WebDB: `http://127.0.0.1:${WEBDB_HOST_PORT}`
+- DbGate: `http://127.0.0.1:${DBGATE_HOST_PORT}`
 - MSSQL MCP: `http://127.0.0.1:${MSSQL_MCP_HOST_PORT}`
 
 SQL Server is not published to the host in this variation.
@@ -135,6 +135,7 @@ SQL Server is not published to the host in this variation.
 The stack uses named volumes:
 - `node_red_data`
 - `sqlserver_data`
+- `dbgate_data`
 - `mssql_mcp_data`
 - `mssql_mcp_logs`
 
@@ -179,7 +180,7 @@ SQLSERVER_RESTORE_ENABLED=false
   - `credentialSecret`
   - hashed Node-RED password
 - Secrets passed as container environment variables are visible to users who have access to the Docker daemon.
-- Node-RED and WebDB are bound to `127.0.0.1`, not `0.0.0.0`, which reduces exposure on the host network.
+- Node-RED, DbGate, and MSSQL MCP are bound to `127.0.0.1`, not `0.0.0.0`, which reduces exposure on the host network.
 
 ## Troubleshooting
 ### SQL Server container keeps restarting
@@ -217,11 +218,11 @@ Then inspect the main service:
 docker compose logs node_red
 ```
 
-### WebDB does not come up
+### DbGate does not come up
 Inspect:
 
 ```bash
-docker compose logs webdb
+docker compose logs dbgate
 ```
 
 ### MSSQL MCP does not come up
