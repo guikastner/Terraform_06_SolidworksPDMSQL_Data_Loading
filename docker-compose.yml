@@ -120,6 +120,9 @@ services:
         ALTER DATABASE [$${escaped_db_name}] SET MULTI_USER;"
           run_sqlcmd "$${restore_query}" >/dev/null
         done
+    volumes:
+      - ./database:/restore/database:ro
+      - ./databases:/restore/databases:ro
     networks:
       - stack_internal
 
@@ -138,6 +141,7 @@ services:
   node_red_init:
     image: ${NODE_RED_IMAGE}
     container_name: ${NODE_RED_CONTAINER_NAME}-init
+    user: "0:0"
     restart: "no"
     depends_on:
       sqlserver_restore:
@@ -149,7 +153,9 @@ services:
         set -eu
         cd /data
         npm install --no-fund --no-update-notifier --omit=dev \
-          https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.3.tgz
+          https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.4.tgz \
+          node-red-contrib-mssql-plus
+        chown -R 1000:1000 /data
     volumes:
       - node_red_data:/data
     networks:
