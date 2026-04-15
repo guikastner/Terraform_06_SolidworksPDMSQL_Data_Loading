@@ -43,12 +43,14 @@ That means it depends on emulation support in Docker. This may be slow, unstable
 ## Files
 - [docker-compose.yml](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/docker-compose.yml): main stack definition
 - [.env.example](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/.env.example): example configuration values
+- [ENVIRONMENT.md](/e:/Git/Terraform_06_SolidworksPDMSQL_Data_Loading/ENVIRONMENT.md): advanced environment variable reference and operational notes
 - [build/](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/build): generated runtime artifacts such as `build/node-red/settings.js`
 - [databases/](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/databases): local `.bak` files kept with this variation when needed for manual restore
 
 ## Configuration
 1. Copy `.env.example` to `.env`.
-2. Adjust at least these variables:
+2. Review the advanced variable reference in [ENVIRONMENT.md](/e:/Git/Terraform_06_SolidworksPDMSQL_Data_Loading/ENVIRONMENT.md).
+3. Adjust at least these variables:
    - `NODE_RED_CONTAINER_NAME`
    - `NODE_RED_HOST_PORT`
    - `NODE_RED_ADMIN_USERNAME`
@@ -58,7 +60,7 @@ That means it depends on emulation support in Docker. This may be slow, unstable
    - `SQLSERVER_SA_PASSWORD`
    - `WEBDB_CONTAINER_NAME`
    - `WEBDB_HOST_PORT`
-3. Review these image and platform variables:
+4. Review these image and platform variables:
    - `NODE_RED_IMAGE`
    - `SQLSERVER_IMAGE`
    - `SQLSERVER_PLATFORM`
