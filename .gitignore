@@ -1,17 +1,20 @@
 # terraform / opentofu
 .terraform/
+*.terraform
 *.tfstate
 *.tfstate.*
+*.tfvars
 crash.log
 terraform.tfvars
 
 # generated configs / secrets
 build/
 config/cloudflare/*.json
+.env
+*.env
 
 # local metadata
 Agents.md
 
-# Other
+# backup files
 *.bak
-*.env
