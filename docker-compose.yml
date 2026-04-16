@@ -1,0 +1,261 @@
+services:
+  sqlserver:
+    image: ${SQLSERVER_IMAGE}
+    platform: ${SQLSERVER_PLATFORM}
+    container_name: ${SQLSERVER_CONTAINER_NAME}
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: ${SQLSERVER_EDITION}
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      TZ: ${TZ}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/1433'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+      - ./database:/restore/database:ro
+      - ./databases:/restore/databases:ro
+    networks:
+      - stack_internal
+
+  sqlserver_restore:
+    image: ${SQLSERVER_IMAGE}
+    platform: ${SQLSERVER_PLATFORM}
+    container_name: ${SQLSERVER_CONTAINER_NAME}-restore
+    restart: "no"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      SQLSERVER_HOST: ${SQLSERVER_CONTAINER_NAME}
+      SQLSERVER_SA_USERNAME: ${SQLSERVER_SA_USERNAME}
+      SQLSERVER_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD}
+      SQLSERVER_RESTORE_ENABLED: ${SQLSERVER_RESTORE_ENABLED}
+    entrypoint:
+      - /bin/bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [[ "$${SQLSERVER_RESTORE_ENABLED:-true}" != "true" ]]; then
+          echo "sqlserver_restore: restore disabled by SQLSERVER_RESTORE_ENABLED"
+          exit 0
+        fi
+        if [[ -x /opt/mssql-tools18/bin/sqlcmd ]]; then
+          SQLCMD_PATH=/opt/mssql-tools18/bin/sqlcmd
+        elif [[ -x /opt/mssql-tools/bin/sqlcmd ]]; then
+          SQLCMD_PATH=/opt/mssql-tools/bin/sqlcmd
+        else
+          echo "sqlcmd not found in restore container" >&2
+          exit 1
+        fi
+        shopt -s nullglob
+        restore_files=(/restore/database/*.bak /restore/databases/*.bak)
+        if [[ $${#restore_files[@]} -eq 0 ]]; then
+          echo "sqlserver_restore: no .bak files found in /restore/database or /restore/databases"
+          exit 0
+        fi
+        echo "sqlserver_restore: found $${#restore_files[@]} backup file(s)"
+        run_sqlcmd() {
+          local query="$$1"
+          SQLCMDPASSWORD="$${SQLSERVER_SA_PASSWORD}" "$${SQLCMD_PATH}" \
+            -b \
+            -S "$${SQLSERVER_HOST}" \
+            -U "$${SQLSERVER_SA_USERNAME}" \
+            -C \
+            -s "|" \
+            -W \
+            -h -1 \
+            -Q "$${query}"
+        }
+        echo "sqlserver_restore: waiting for SQL query readiness on $${SQLSERVER_HOST}"
+        ready=0
+        for _attempt in {1..30}; do
+          if run_sqlcmd "SELECT 1" >/dev/null 2>&1; then
+            ready=1
+            break
+          fi
+          sleep 2
+        done
+        if [[ "$${ready}" -ne 1 ]]; then
+          echo "sqlserver_restore: SQL Server did not become query-ready in time" >&2
+          exit 1
+        fi
+        echo "sqlserver_restore: SQL Server is query-ready"
+        for restore_file in "$${restore_files[@]}"; do
+          echo "sqlserver_restore: inspecting backup $${restore_file}"
+          escaped_restore_file="$${restore_file//\'/\'\'}"
+          db_name="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE HEADERONLY FROM DISK = N'$${escaped_restore_file}'" | grep '|' | head -n 1 | cut -d'|' -f10 | tr -d '\r')"
+          if [[ -z "$${db_name}" ]]; then
+            echo "Could not extract original database name from backup header: $${restore_file}" >&2
+            exit 1
+          fi
+          echo "sqlserver_restore: backup database name is $${db_name}"
+          escaped_db_name_sql="$${db_name//\'/\'\'}"
+          escaped_db_name_bracket="$${db_name//]/]]}"
+          if run_sqlcmd "SET NOCOUNT ON; SELECT DB_ID(N'$${escaped_db_name_sql}')" | grep -qv '^NULL$$'; then
+            echo "sqlserver_restore: database $${db_name} already exists; skipping restore"
+            continue
+          fi
+          file_list="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE FILELISTONLY FROM DISK = N'$${escaped_restore_file}'" | grep '|')"
+          data_index=0
+          log_index=0
+          move_clauses=()
+          while IFS='|' read -r logical_name physical_name file_type _rest; do
+            logical_name="$$(printf '%s' "$${logical_name}" | tr -d '\r')"
+            file_type="$$(printf '%s' "$${file_type}" | tr -d '\r')"
+            [[ -n "$${logical_name}" ]] || continue
+            case "$${file_type}" in
+              L|D|F|S)
+                ;;
+              *)
+                continue
+                ;;
+            esac
+            case "$${file_type}" in
+              L)
+                log_index=$$((log_index + 1))
+                if [[ $${log_index} -eq 1 ]]; then
+                  target_path="/var/opt/mssql/data/$${db_name}_log.ldf"
+                else
+                  target_path="/var/opt/mssql/data/$${db_name}_log$${log_index}.ldf"
+                fi
+                ;;
+              *)
+                data_index=$$((data_index + 1))
+                if [[ $${data_index} -eq 1 ]]; then
+                  target_path="/var/opt/mssql/data/$${db_name}.mdf"
+                else
+                  target_path="/var/opt/mssql/data/$${db_name}_$${data_index}.ndf"
+                fi
+                ;;
+            esac
+            escaped_logical_name="$${logical_name//\'/\'\'}"
+            move_clauses+=("MOVE N'$${escaped_logical_name}' TO N'$${target_path}'")
+          done <<< "$${file_list}"
+          if [[ $${#move_clauses[@]} -eq 0 ]]; then
+            echo "Could not extract logical files from backup: $${restore_file}" >&2
+            exit 1
+          fi
+          move_clause_sql="$$(printf ', %s' "$${move_clauses[@]}")"
+          move_clause_sql="$${move_clause_sql:2}"
+          echo "sqlserver_restore: restoring $${db_name} from $${restore_file}"
+          restore_query="
+        SET NOCOUNT ON;
+        RESTORE DATABASE [$${escaped_db_name_bracket}]
+        FROM DISK = N'$${escaped_restore_file}'
+        WITH RECOVERY, $${move_clause_sql};"
+          restored=0
+          for restore_attempt in {1..10}; do
+            if restore_output="$$(run_sqlcmd "$${restore_query}" 2>&1)"; then
+              restored=1
+              break
+            fi
+            echo "sqlserver_restore: restore attempt $${restore_attempt} failed for $${db_name}" >&2
+            echo "$${restore_output}" >&2
+            sleep 3
+          done
+          if [[ "$${restored}" -ne 1 ]]; then
+            echo "sqlserver_restore: restore failed permanently for $${db_name}" >&2
+            exit 1
+          fi
+          printf '%s\n' "$${restore_output}"
+          echo "sqlserver_restore: restore completed for $${db_name}"
+        done
+        echo "sqlserver_restore: all backup restores completed successfully"
+    volumes:
+      - ./database:/restore/database:ro
+      - ./databases:/restore/databases:ro
+    networks:
+      - stack_internal
+
+  dbgate:
+    image: ${DBGATE_IMAGE}
+    container_name: ${DBGATE_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    ports:
+      - "${DBGATE_HOST_PORT}:3000"
+    volumes:
+      - dbgate_data:/root/.dbgate
+    networks:
+      - stack_internal
+
+  mssql_mcp:
+    image: ${MSSQL_MCP_IMAGE}
+    container_name: ${MSSQL_MCP_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    environment:
+      MSSQL_MCP_KEY: ${MSSQL_MCP_KEY}
+      MSSQL_MCP_API_KEY: ${MSSQL_MCP_API_KEY}
+    ports:
+      - "${MSSQL_MCP_HOST_PORT}:3001"
+    volumes:
+      - mssql_mcp_data:/app/Data
+      - mssql_mcp_logs:/app/Logs
+    networks:
+      - stack_internal
+
+  node_red_init:
+    image: ${NODE_RED_IMAGE}
+    container_name: ${NODE_RED_CONTAINER_NAME}-init
+    user: "0:0"
+    restart: "no"
+    depends_on:
+      sqlserver_restore:
+        condition: service_completed_successfully
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        cd /data
+        npm install --no-fund --no-update-notifier --omit=dev \
+          https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.4.tgz \
+          node-red-contrib-mssql-plus \
+          node-red-contrib-minio-all
+        chown -R 1000:1000 /data
+    volumes:
+      - node_red_data:/data
+    networks:
+      - stack_internal
+
+  node_red:
+    image: ${NODE_RED_IMAGE}
+    container_name: ${NODE_RED_CONTAINER_NAME}
+    restart: unless-stopped
+    depends_on:
+      node_red_init:
+        condition: service_completed_successfully
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "${NODE_RED_HOST_PORT}:1880"
+    volumes:
+      - node_red_data:/data
+    networks:
+      - stack_internal
+
+networks:
+  stack_internal:
+    driver: bridge
+
+volumes:
+  node_red_data:
+    name: ${NODE_RED_CONTAINER_NAME}-data
+  sqlserver_data:
+    name: ${SQLSERVER_CONTAINER_NAME}-data
+  dbgate_data:
+    name: ${DBGATE_CONTAINER_NAME}-data
+  mssql_mcp_data:
+    name: ${MSSQL_MCP_CONTAINER_NAME}-data
+  mssql_mcp_logs:
+    name: ${MSSQL_MCP_CONTAINER_NAME}-logs

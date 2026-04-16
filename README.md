@@ -1,108 +1,263 @@
-# Node-RED + SQL Server + Cloudflare Tunnel (OpenTofu)
+# Node-RED + SQL Server + DbGate (Docker Compose)
 
-This repository provisions the stack described in `Agents.md` with OpenTofu and the Docker provider. The current spec keeps a private internal Docker network, exposes Node-RED only through a Cloudflare Tunnel, persists Node-RED and SQL Server data in named volumes, and sends daily backups to an external MinIO endpoint.
+This branch is the Docker Compose variation of the project. It does not use OpenTofu, Cloudflare, MinIO, or any provisioned backup routine.
 
-## Components
-- 1 `Node-RED` container from `nodered/node-red:4.1.4-22`
-- 1 `SQL Server` container from `mcr.microsoft.com/mssql/server:2022-latest`
-- 1 `WebDB` container from `webdb/app:latest`
-- 1 `cloudflared` container for the Cloudflare tunnel
-- 1 internal Docker network with `internal = true`
-- named Docker volumes for Node-RED and SQL Server persistence
-- MinIO bootstrap and backup scripts executed from OpenTofu
+## Overview
+The stack provides:
+- `node-red` based on `nodered/node-red:4.1.4-22`
+- `sqlserver` based on `mcr.microsoft.com/mssql/server:2022-latest`
+- `dbgate` based on `dbgate/dbgate:latest`
+- `mssql_mcp` based on `mcprunner/mssqlmcp:1.0.9.5`
+- one internal Docker network
+- named volumes for Node-RED, SQL Server, DbGate, and MCP persistence
 
-## What changed from the previous spec
-- MongoDB was removed and replaced with SQL Server.
-- Derived naming via `name_prefix` was removed; container names and the Node-RED CNAME are now explicit variables in `terraform.tfvars`.
-- The old `cloudflare_tunnel = { ... }` object was replaced by flat variables:
-  - `cloudflare_account_id`
-  - `cloudflare_tunnel_name`
-  - `cloudflare_zone_id`
-  - `cloudflare_zone_name`
-  - `cloudflare_api_token`
-  - `cloudflare_proxied`
-- Backups now target SQL Server databases plus Node-RED flow files, with the default schedule moved to midnight (`0 0 * * *`).
+The intent of this variation is to keep the project self-contained and runnable with Docker Compose only.
 
-## Required inputs
-Fill `terraform.tfvars` with the real values. Use `terraform.tfvars.example` as the starting point.
+## Architecture
+- `sqlserver` runs on the internal Docker network only.
+- `dbgate` runs on the internal Docker network and is published locally on `127.0.0.1:${DBGATE_HOST_PORT}`.
+- `mssql_mcp` runs on the internal Docker network and is published locally on `127.0.0.1:${MSSQL_MCP_HOST_PORT}`.
+- `node_red` runs on the internal Docker network and is published locally on `127.0.0.1:${NODE_RED_HOST_PORT}`.
+- `node_red_init` is a one-shot initialization service that:
+  - creates the Node-RED `settings.js`
+  - hashes the Node-RED admin password
+  - installs extra Node-RED modules into the persistent volume
+- `sqlserver_restore` is a one-shot initialization service that restores `.bak` files automatically when enabled
 
-Main variables:
-- `node_red_container_name`
-- `node_red_cname`
-- `node_red_admin_username`
-- `node_red_admin_password`
-- `sqlserver_container_name`
-- `webdb_container_name`
-- `webdb_cname`
-- `sqlserver_sa_password`
-- `cloudflared_container_name`
-- `minio_access_key`
-- `minio_secret_key`
-- `minio_bucket_name`
-- `cloudflare_api_token`
-- `cloudflare_account_id`
-- `cloudflare_zone_id`
-- `cloudflare_zone_name`
-- `cloudflare_tunnel_name`
+## Prerequisites
+- Docker Engine installed and working
+- Docker Compose v2 available through `docker compose`
+- enough disk space for:
+  - SQL Server image
+  - DbGate image
+  - Node-RED image
+  - Node-RED, SQL Server, DbGate, and MCP named volumes
+  
 
-## Node-RED behavior
-- Node-RED keeps outbound internet access through Docker `bridge` so palette modules can be installed.
-- `settings.js` is rendered from `templates/node-red-settings.js.tmpl` and mounted read-only into `/data/settings.js`.
-- `terraform.tfvars` must contain the plain Node-RED admin password, not its bcrypt hash.
-- The bcrypt hash is generated during deploy/runtime by the Node-RED settings logic through `bcryptjs`.
-- Default Node-RED admin credentials follow `Agents.md`:
-  - user: `admin`
-  - password: `0102030405!`
+## Important architecture note
+The official SQL Server Linux container image is supported on `x86_64`.
 
-## Cloudflare tunnel
-The tunnel is still created by OpenTofu. The implementation keeps:
-- `cloudflare_zero_trust_tunnel_cloudflared`
-- `cloudflare_zero_trust_tunnel_cloudflared_config`
-- a `cloudflare_record` CNAME pointing to `${tunnel_id}.cfargotunnel.com`
-- the `cloudflared` container mounted with generated config and credentials
-- ingress for both Node-RED and WebDB over the same tunnel
+On `arm64`, this Compose variation uses:
+- `SQLSERVER_PLATFORM=linux/amd64`
 
-All Cloudflare inputs now come directly from `terraform.tfvars`. Runtime tunnel files are rendered under `build/cloudflare/`.
-
-## Backups
-OpenTofu generates `build/backup/backup_runner.sh`, installs a cron entry on the host, and executes `scripts/backup_run.sh`.
-
-Each run:
-- creates `.bak` backups for every non-system SQL Server database
-- archives Node-RED flow files from `/data`
-- uploads artifacts to MinIO under:
-  - `backup/sqlserver`
-  - `backup/node-red`
-
-## Restore on deploy
-- If `sqlserver_restore_enabled = true`, `tofu apply` looks for `.bak` files in `database/` and `databases/`.
-- Each matching file is copied into the SQL Server container and restored automatically.
-- The restore resource re-runs when:
-  - a `.bak` file changes,
-  - a new `.bak` file is added or removed,
-  - the SQL Server container is recreated.
-- The restore always uses the original database name stored inside the `.bak` metadata (`RESTORE HEADERONLY`), not the backup filename.
+That means it depends on emulation support in Docker. This may be slow, unstable, or fail entirely depending on the host. It is not equivalent to native `arm64` support.
 
 ## Files
-- `variables.tf`: new input schema
-- `containers.tf`: Node-RED, SQL Server, and WebDB containers
-- `cloudflare.tf` / `cloudflare_dns.tf`: tunnel, agent, and DNS resources
-- `scripts/minio_setup.sh`: bucket and folder bootstrap
-- `scripts/backup_run.sh`: SQL Server and Node-RED backup workflow
-- `templates/node-red-settings.js.tmpl`: generated Node-RED settings
-- `templates/cloudflared-config.yml.tmpl`: generated cloudflared config
-- `terraform.tfvars.example`: single source of example input values
+- [docker-compose.yml](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/docker-compose.yml): main stack definition
+- [.env.example](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/.env.example): example configuration values
+- [ENVIRONMENT.md](/e:/Git/Terraform_06_SolidworksPDMSQL_Data_Loading/ENVIRONMENT.md): advanced environment variable reference and operational notes
+- [build/](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/build): generated runtime artifacts such as `build/node-red/settings.js`
+- [databases/](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/databases): local `.bak` files kept with this variation when needed for manual restore
 
-## Usage
+## Configuration
+1. Copy `.env.example` to `.env`.
+2. Review the advanced variable reference in [ENVIRONMENT.md](/e:/Git/Terraform_06_SolidworksPDMSQL_Data_Loading/ENVIRONMENT.md).
+3. Adjust at least these variables:
+   - `NODE_RED_CONTAINER_NAME`
+   - `NODE_RED_HOST_PORT`
+   - `NODE_RED_ADMIN_USERNAME`
+   - `NODE_RED_ADMIN_PASSWORD`
+   - `NODE_RED_CREDENTIAL_SECRET`
+   - `SQLSERVER_CONTAINER_NAME`
+   - `SQLSERVER_SA_PASSWORD`
+   - `DBGATE_CONTAINER_NAME`
+   - `DBGATE_HOST_PORT`
+   - `MSSQL_MCP_CONTAINER_NAME`
+   - `MSSQL_MCP_HOST_PORT`
+   - `MSSQL_MCP_KEY`
+   - `MSSQL_MCP_API_KEY`
+4. Review these image and platform variables:
+   - `NODE_RED_IMAGE`
+   - `SQLSERVER_IMAGE`
+   - `SQLSERVER_PLATFORM`
+   - `DBGATE_IMAGE`
+   - `MSSQL_MCP_IMAGE`
+
+## Default environment variables
+The example file currently defines:
+- timezone: `America/Sao_Paulo`
+- Node-RED host port: `1880`
+- DbGate host port: `3000`
+- MSSQL MCP host port: `3001`
+- SQL Server edition: `Developer`
+- SQL Server platform: `linux/amd64`
+
+## Starting the stack
+Bring everything up:
+
 ```bash
-tofu init
-tofu fmt -recursive
-tofu plan
-tofu apply
+docker compose up -d
 ```
 
-## Notes
-- No container publishes host ports.
-- Node-RED and cloudflared use the internal network plus Docker `bridge` for outbound internet access.
-- SQL Server and WebDB stay only on the internal network.
-- `terraform.tfvars` remains ignored by Git.
+The expected startup order is:
+1. `sqlserver`
+2. `sqlserver_restore`
+3. `dbgate`
+4. `mssql_mcp`
+5. `node_red_init`
+6. `node_red`
+
+Check status:
+
+```bash
+docker compose ps
+```
+
+Inspect logs:
+
+```bash
+docker compose logs -f
+```
+
+## Stopping the stack
+Stop the services:
+
+```bash
+docker compose down
+```
+
+Stop and remove named volumes too:
+
+```bash
+docker compose down -v
+```
+
+Use `-v` only if you explicitly want to delete Node-RED and SQL Server persistent data.
+
+## Access
+- Node-RED: `http://127.0.0.1:${NODE_RED_HOST_PORT}`
+- DbGate: `http://127.0.0.1:${DBGATE_HOST_PORT}`
+- MSSQL MCP: `http://127.0.0.1:${MSSQL_MCP_HOST_PORT}`
+
+SQL Server is not published to the host in this variation.
+
+## Persistence
+The stack uses named volumes:
+- `node_red_data`
+- `sqlserver_data`
+- `dbgate_data`
+- `mssql_mcp_data`
+- `mssql_mcp_logs`
+
+These volumes survive container recreation unless explicitly removed.
+
+## Node-RED behavior
+- The admin password is stored as plain text in `.env`.
+- The bcrypt hash is generated during startup by the `node_red_init` one-shot service defined directly in `docker-compose.yml`.
+- Node-RED settings are rendered into `build/node-red/settings.js`.
+- Extra modules are installed into the named volume before the main Node-RED container starts.
+- The generated settings include:
+  - admin authentication
+  - credential secret
+  - SQL Server connection metadata in `functionGlobalContext`
+  - palette editing enabled
+
+## Automatic restore of `.bak`
+This variation performs restore automatically through the `sqlserver_restore` one-shot service.
+
+If `SQLSERVER_RESTORE_ENABLED=true`, the stack looks for `.bak` files in:
+- `database/`
+- `databases/`
+
+For each backup file found:
+- the original database name is read from `RESTORE HEADERONLY`
+- the logical files are read from `RESTORE FILELISTONLY`
+- if a database with the same name already exists, the restore for that backup is skipped
+- otherwise, the restore is executed with `WITH MOVE` and `WITH RECOVERY`
+
+The backup filename is not used as the database name.
+
+If no `.bak` files are found, `sqlserver_restore` exits successfully and the rest of the stack continues normally.
+
+To disable automatic restore for a given run:
+
+```env
+SQLSERVER_RESTORE_ENABLED=false
+```
+
+## Security notes
+- [`.env`](/DATA/AppData/git/Terraform_06_SolidworksPDMSQL_Data_Loading/.env) is ignored by Git, but it still contains secrets in plain text.
+- `build/` is ignored by Git, but generated files may include sensitive material such as:
+  - `credentialSecret`
+  - hashed Node-RED password
+- Secrets passed as container environment variables are visible to users who have access to the Docker daemon.
+- Node-RED, DbGate, and MSSQL MCP are bound to `127.0.0.1`, not `0.0.0.0`, which reduces exposure on the host network.
+
+## Troubleshooting
+### SQL Server container keeps restarting
+If you see errors like `exec format error`, the host likely cannot run the SQL Server image correctly under the configured platform.
+
+Check:
+
+```bash
+docker compose logs sqlserver
+```
+
+### Restore service fails
+Inspect:
+
+```bash
+docker compose logs sqlserver_restore
+```
+
+Common reasons:
+- no `sqlcmd` binary available in the image
+- unsupported SQL Server runtime on the current host architecture
+- invalid or incompatible `.bak`
+- logical file names in the backup cannot be mapped automatically
+
+### Node-RED does not start
+Inspect the init container first:
+
+```bash
+docker compose logs node_red_init
+```
+
+Then inspect the main service:
+
+```bash
+docker compose logs node_red
+```
+
+### DbGate does not come up
+Inspect:
+
+```bash
+docker compose logs dbgate
+```
+
+### MSSQL MCP does not come up
+Inspect:
+
+```bash
+docker compose logs mssql_mcp
+```
+
+To use it from VS Code MCP, configure a server URL pointing to:
+
+```json
+{
+  "servers": {
+    "sql-server-mcp": {
+      "url": "http://localhost:${MSSQL_MCP_HOST_PORT}",
+      "headers": {
+        "X-API-Key": "<your MSSQL_MCP_API_KEY>",
+        "Content-Type": "application/json"
+      }
+    }
+  }
+}
+```
+
+### Validate the resolved Compose configuration
+
+```bash
+docker compose --env-file .env.example config
+```
+
+## Scope of this variation
+- No Cloudflare resources
+- No MinIO resources
+- No backup provisioning
+- No OpenTofu resources
+- No repository shell scripts
