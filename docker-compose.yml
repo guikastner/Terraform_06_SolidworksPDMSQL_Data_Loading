@@ -219,7 +219,8 @@ services:
         cd /data
         npm install --no-fund --no-update-notifier --omit=dev \
           https://btcc.s3.dualstack.eu-west-1.amazonaws.com/widget-lab/npm/node-red-contrib-3dxinterfaces/dist/widget-lab-node-red-contrib-3dxinterfaces-6.5.4.tgz \
-          node-red-contrib-mssql-plus
+          node-red-contrib-mssql-plus \
+          node-red-contrib-minio-all
         chown -R 1000:1000 /data
     volumes:
       - node_red_data:/data
