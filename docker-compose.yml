@@ -87,14 +87,20 @@ services:
         echo "sqlserver_restore: SQL Server is query-ready"
         for restore_file in "$${restore_files[@]}"; do
           echo "sqlserver_restore: inspecting backup $${restore_file}"
-          db_name="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE HEADERONLY FROM DISK = N'$${restore_file}'" | grep '|' | head -n 1 | cut -d'|' -f10 | tr -d '\r')"
+          escaped_restore_file="$${restore_file//\'/\'\'}"
+          db_name="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE HEADERONLY FROM DISK = N'$${escaped_restore_file}'" | grep '|' | head -n 1 | cut -d'|' -f10 | tr -d '\r')"
           if [[ -z "$${db_name}" ]]; then
             echo "Could not extract original database name from backup header: $${restore_file}" >&2
             exit 1
           fi
           echo "sqlserver_restore: backup database name is $${db_name}"
-          escaped_db_name="$${db_name//]/]]}"
-          file_list="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE FILELISTONLY FROM DISK = N'$${restore_file}'" | grep '|')"
+          escaped_db_name_sql="$${db_name//\'/\'\'}"
+          escaped_db_name_bracket="$${db_name//]/]]}"
+          if run_sqlcmd "SET NOCOUNT ON; SELECT DB_ID(N'$${escaped_db_name_sql}')" | grep -qv '^NULL$$'; then
+            echo "sqlserver_restore: database $${db_name} already exists; skipping restore"
+            continue
+          fi
+          file_list="$$(run_sqlcmd "SET NOCOUNT ON; RESTORE FILELISTONLY FROM DISK = N'$${escaped_restore_file}'" | grep '|')"
           data_index=0
           log_index=0
           move_clauses=()
@@ -138,15 +144,10 @@ services:
           move_clause_sql="$${move_clause_sql:2}"
           echo "sqlserver_restore: restoring $${db_name} from $${restore_file}"
           restore_query="
-        IF DB_ID(N'$${escaped_db_name}') IS NOT NULL
-        BEGIN
-          ALTER DATABASE [$${escaped_db_name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-        END;
         SET NOCOUNT ON;
-        RESTORE DATABASE [$${escaped_db_name}]
-        FROM DISK = N'$${restore_file}'
-        WITH REPLACE, RECOVERY, $${move_clause_sql};
-        ALTER DATABASE [$${escaped_db_name}] SET MULTI_USER;"
+        RESTORE DATABASE [$${escaped_db_name_bracket}]
+        FROM DISK = N'$${escaped_restore_file}'
+        WITH RECOVERY, $${move_clause_sql};"
           restored=0
           for restore_attempt in {1..10}; do
             if restore_output="$$(run_sqlcmd "$${restore_query}" 2>&1)"; then

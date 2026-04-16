@@ -66,13 +66,14 @@ The `sqlserver_restore` service is a one-shot init service. It:
 - scans `database/` and `databases/` for `.bak` files
 - reads the original database name from `RESTORE HEADERONLY`
 - reads logical file names from `RESTORE FILELISTONLY`
-- runs `RESTORE DATABASE ... WITH MOVE, REPLACE, RECOVERY`
+- skips restore when a matching target database already exists
+- otherwise runs `RESTORE DATABASE ... WITH MOVE, RECOVERY`
 
 Important implications:
 - if `SQLSERVER_RESTORE_ENABLED=false`, no restore is attempted
 - if no `.bak` files are present, the service exits successfully without restoring anything
 - on container recreation, restore can run again against the same persistent SQL Server volume
-- because `WITH REPLACE` is used, a matching target database may be overwritten
+- if the target database is already present in the persistent SQL Server volume, it is left untouched
 
 ### Variables currently present but not consumed by the active Compose flow
 

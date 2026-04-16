@@ -162,7 +162,8 @@ If `SQLSERVER_RESTORE_ENABLED=true`, the stack looks for `.bak` files in:
 For each backup file found:
 - the original database name is read from `RESTORE HEADERONLY`
 - the logical files are read from `RESTORE FILELISTONLY`
-- the restore is executed with `WITH MOVE` and `WITH REPLACE`
+- if a database with the same name already exists, the restore for that backup is skipped
+- otherwise, the restore is executed with `WITH MOVE` and `WITH RECOVERY`
 
 The backup filename is not used as the database name.
 
